@@ -13,12 +13,12 @@ type ValidateCallback = (
     done: (error: Error | null, user?: Profile, info?: { message: string }) => void,
 ) => void;
 
-interface SteamOpenIDOptions {
+type SteamOpenIDOptions = {
     providerURL: string;
     stateless?: boolean;
     apiKey: string;
     profile: boolean;
-}
+};
 
 function getUserProfile(
     key: string,
@@ -40,7 +40,7 @@ function getUserProfile(
         });
 }
 
-export default class Strategy extends OpenIDStrategy {
+export class Strategy extends OpenIDStrategy {
     public name: string;
     public stateless: boolean;
 
