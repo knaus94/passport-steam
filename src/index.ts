@@ -47,7 +47,7 @@ async function getUserProfile(
                     return;
                 }
 
-                return game.playTime;
+                return Math.ceil(game.playTime / 60);
             };
 
             result = {
