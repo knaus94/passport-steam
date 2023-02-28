@@ -2,7 +2,7 @@ import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
 import SteamWebAPI from 'steamapi';
 import { Request } from 'express';
 
-export interface Profile {
+export interface Profile extends SteamWebAPI.PlayerSummary {
     provider: string;
 }
 
@@ -46,7 +46,7 @@ export default class Strategy extends OpenIDStrategy {
 
     constructor(options: SteamOpenIDOptions, validate: ValidateCallback) {
         options.providerURL = options.providerURL || 'https://steamcommunity.com/openid';
-        options.stateless = options.stateless ?? true;
+        options.stateless = true;
 
         async function verify(
             req: Request,
