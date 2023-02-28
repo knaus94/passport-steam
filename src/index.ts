@@ -2,7 +2,7 @@ import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
 import SteamWebAPI from 'steamapi';
 import { Request } from 'express';
 
-export interface Profile extends SteamWebAPI.PlayerSummary {
+interface Profile extends SteamWebAPI.PlayerSummary {
     provider: string;
 }
 
@@ -40,7 +40,7 @@ function getUserProfile(
         });
 }
 
-export default class Strategy extends OpenIDStrategy {
+class Strategy extends OpenIDStrategy {
     public name: string;
     public stateless: boolean;
 
@@ -87,3 +87,5 @@ export default class Strategy extends OpenIDStrategy {
         this.stateless = options.stateless;
     }
 }
+
+export = Strategy;
