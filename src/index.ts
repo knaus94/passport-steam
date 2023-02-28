@@ -1,5 +1,5 @@
 import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
-import Steam, { PlayerSummary } from 'steamapi';
+import SteamAPI, { PlayerSummary } from 'steamapi';
 import { Request } from 'express';
 
 export interface Profile extends PlayerSummary {
@@ -18,7 +18,7 @@ function getUserProfile(
     steamID: string,
     callback: (err?: Error | null, profile?: Profile) => void,
 ) {
-    const steam = new Steam(key);
+    const steam = new SteamAPI(key);
 
     steam
         .getUserSummary(steamID)
