@@ -3,6 +3,8 @@ import SteamAPI, { PlayerSummary } from 'steamapi';
 import { Request } from 'express';
 
 export interface Profile extends PlayerSummary {
+    lastLogOffAt: Date;
+    createdAt: Date;
     provider: string;
     avatarHash: string;
     accountLevel?: number;
@@ -38,6 +40,8 @@ async function getUserProfile(
             provider: 'steam',
             ...user,
             avatarHash: user.avatar.small.match(/[^/]*(?=\.[^.]+($|\?))/)[0],
+            lastLogOffAt: new Date(user.lastLogOff * 1e3),
+            createdAt: new Date(user.created * 1e3),
         };
 
         if (user.visibilityState === 3) {
