@@ -2,7 +2,7 @@ import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
 import SteamWebAPI from 'steamapi';
 import { Request } from 'express';
 
-interface Profile extends SteamWebAPI.PlayerSummary {
+export interface Profile extends SteamWebAPI.PlayerSummary {
     provider: string;
 }
 
