@@ -13,13 +13,6 @@ type ValidateCallback = (
     done: (error: Error | null, user?: Profile, info?: { message: string }) => void,
 ) => void;
 
-type SteamOpenIDOptions = {
-    providerURL: string;
-    stateless?: boolean;
-    apiKey: string;
-    profile: boolean;
-};
-
 function getUserProfile(
     key: string,
     steamID: string,
@@ -44,9 +37,19 @@ export class Strategy extends OpenIDStrategy {
     public name: string;
     public stateless: boolean;
 
-    constructor(options: SteamOpenIDOptions, validate: ValidateCallback) {
+    constructor(
+        options: {
+            providerURL?: string;
+            stateless?: boolean;
+            returnURL: string;
+            apiKey: string;
+            profile: boolean;
+            realm: string;
+        },
+        validate: ValidateCallback,
+    ) {
         options.providerURL = options.providerURL || 'https://steamcommunity.com/openid';
-        options.stateless = true;
+        options.stateless = options.stateless ?? true;
 
         function verify(
             req: Request,
