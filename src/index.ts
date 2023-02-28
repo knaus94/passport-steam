@@ -4,6 +4,11 @@ import { Request } from 'express';
 
 export interface Profile extends PlayerSummary {
     provider: string;
+    avatarHash: string;
+    accountLevel?: number;
+    csgoHours?: number;
+    dotaHours?: number;
+    rustHours?: number;
 }
 
 type ValidateCallback = (
@@ -13,24 +18,51 @@ type ValidateCallback = (
     done: (error: Error | null, user?: Profile, info?: { message: string }) => void,
 ) => void;
 
-function getUserProfile(
+async function getUserProfile(
     key: string,
     steamID: string,
     callback: (err?: Error | null, profile?: Profile) => void,
 ) {
     const steam = new SteamAPI(key);
 
-    steam
-        .getUserSummary(steamID)
-        .then((result) => {
-            callback(null, {
-                provider: 'steam',
+    try {
+        const user = await steam.getUserSummary(steamID);
+
+        let result: Profile = {
+            provider: 'steam',
+            ...user,
+            avatarHash: user.avatar.small.match(/[^/]*(?=\.[^.]+($|\?))/)[0],
+        };
+
+        if (user.visibilityState === 3) {
+            const [accountLevel, games] = await Promise.all([
+                steam.getUserLevel(steamID),
+                steam.getUserOwnedGames(steamID),
+            ]);
+
+            const hours = (appID: number) => {
+                const game = games.find((game) => game.appID === appID);
+
+                if (!game) {
+                    return;
+                }
+
+                return game.playTime;
+            };
+
+            result = {
                 ...result,
-            });
-        })
-        .catch((err) => {
-            callback(err);
-        });
+                accountLevel,
+                csgoHours: hours(730),
+                dotaHours: hours(570),
+                rustHours: hours(252490),
+            };
+        }
+
+        return callback(null, result);
+    } catch (e) {
+        callback(e);
+    }
 }
 
 export class Strategy extends OpenIDStrategy {
@@ -51,7 +83,7 @@ export class Strategy extends OpenIDStrategy {
         options.providerURL = options.providerURL || 'https://steamcommunity.com/openid';
         options.stateless = options.stateless ?? true;
 
-        function verify(
+        async function verify(
             req: Request,
             identifier: string,
             profile: Profile,
@@ -70,16 +102,14 @@ export class Strategy extends OpenIDStrategy {
                 const steamID = identifierRegex.exec(identifier)[1];
 
                 if (options.profile) {
-                    getUserProfile(options.apiKey, steamID, (err, profile) => {
+                    return getUserProfile(options.apiKey, steamID, (err, profile) => {
                         if (err) {
-                            done(err);
-                        } else {
-                            validate(req, identifier, profile, done);
+                            return done(err);
                         }
+                        return validate(req, identifier, profile, done);
                     });
-                } else {
-                    validate(req, identifier, profile, done);
                 }
+                return validate(req, identifier, profile, done);
             } catch (err) {
                 done(err);
             }
