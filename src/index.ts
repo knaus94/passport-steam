@@ -1,8 +1,11 @@
 import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
-import SteamAPI, { PlayerSummary } from 'steamapi';
+import SteamAPI from 'steamapi';
 import { Request } from 'express';
 
-export interface Profile extends PlayerSummary {
+export interface Profile {
+    steamId: string;
+    nickname: string;
+    isProfilePublic: boolean;
     lastLogOffAt: Date;
     createdAt: Date;
     provider: string;
@@ -34,17 +37,20 @@ async function getUserProfile(
     const steam = new SteamAPI(key);
 
     try {
-        const user = await steam.getUserSummary(steamID);
+        const { nickname, visibilityState, avatar, created, lastLogOff } =
+            await steam.getUserSummary(steamID);
 
         let result: Profile = {
             provider: 'steam',
-            ...user,
-            avatarHash: user.avatar.small.match(/[^/]*(?=\.[^.]+($|\?))/)[0],
-            lastLogOffAt: new Date(user.lastLogOff * 1e3),
-            createdAt: new Date(user.created * 1e3),
+            steamId: steamID,
+            nickname,
+            isProfilePublic: visibilityState == 3,
+            avatarHash: avatar.small.match(/[^/]*(?=\.[^.]+($|\?))/)[0],
+            lastLogOffAt: new Date(lastLogOff * 1e3),
+            createdAt: new Date(created * 1e3),
         };
 
-        if (user.visibilityState === 3) {
+        if (visibilityState === 3) {
             if (select.accountLevel) {
                 const accountLevel = await steam.getUserLevel(steamID);
 
