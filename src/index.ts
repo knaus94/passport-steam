@@ -2,7 +2,7 @@ import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
 import SteamWebAPI from 'steamapi';
 import { Request } from 'express';
 
-interface Profile extends SteamWebAPI.PlayerSummary {
+export interface Profile extends SteamWebAPI.PlayerSummary {
     provider: string;
 }
 
@@ -40,7 +40,7 @@ function getUserProfile(
         });
 }
 
-class Strategy extends OpenIDStrategy {
+export default class Strategy extends OpenIDStrategy {
     public name: string;
     public stateless: boolean;
 
@@ -56,27 +56,30 @@ class Strategy extends OpenIDStrategy {
         ) {
             const validOpEndpoint = 'https://steamcommunity.com/openid/login';
             const identifierRegex = /^https?:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/;
-            console.log(req ? true : false);
-            console.log(req?.query);
-            if (
-                req.query['openid.op_endpoint'] !== validOpEndpoint ||
-                !identifierRegex.test(identifier)
-            ) {
-                return done(null, undefined, { message: 'Claimed identity is invalid.' });
-            }
+            console.log(req);
+            try {
+                if (
+                    req.query['openid.op_endpoint'] !== validOpEndpoint ||
+                    !identifierRegex.test(identifier)
+                ) {
+                    return done(null, undefined, { message: 'Claimed identity is invalid.' });
+                }
 
-            const steamID = identifierRegex.exec(identifier)[1];
+                const steamID = identifierRegex.exec(identifier)[1];
 
-            if (options.profile) {
-                getUserProfile(options.apiKey, steamID, (err, profile) => {
-                    if (err) {
-                        done(err);
-                    } else {
-                        validate(req, identifier, profile, done);
-                    }
-                });
-            } else {
-                validate(req, identifier, profile, done);
+                if (options.profile) {
+                    getUserProfile(options.apiKey, steamID, (err, profile) => {
+                        if (err) {
+                            done(err);
+                        } else {
+                            validate(req, identifier, profile, done);
+                        }
+                    });
+                } else {
+                    validate(req, identifier, profile, done);
+                }
+            } catch (err) {
+                done(err);
             }
         }
 
@@ -86,5 +89,3 @@ class Strategy extends OpenIDStrategy {
         this.stateless = options.stateless;
     }
 }
-
-export = Strategy;
