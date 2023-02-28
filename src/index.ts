@@ -56,28 +56,27 @@ class Strategy extends OpenIDStrategy {
         ) {
             const validOpEndpoint = 'https://steamcommunity.com/openid/login';
             const identifierRegex = /^https?:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/;
+            console.log(req ? true : false);
+            console.log(req?.query);
+            if (
+                req.query['openid.op_endpoint'] !== validOpEndpoint ||
+                !identifierRegex.test(identifier)
+            ) {
+                return done(null, undefined, { message: 'Claimed identity is invalid.' });
+            }
 
-            try {
-                const opEndpoint = req.query['openid.op_endpoint'];
-                if (opEndpoint !== validOpEndpoint || !identifierRegex.test(identifier)) {
-                    return done(null, undefined, { message: 'Claimed identity is invalid.' });
-                }
+            const steamID = identifierRegex.exec(identifier)[1];
 
-                const steamID = identifierRegex.exec(identifier)[1];
-
-                if (options.profile) {
-                    getUserProfile(options.apiKey, steamID, (err, profile) => {
-                        if (err) {
-                            done(err);
-                        } else {
-                            validate(req, identifier, profile, done);
-                        }
-                    });
-                } else {
-                    validate(req, identifier, profile, done);
-                }
-            } catch (err) {
-                done(err);
+            if (options.profile) {
+                getUserProfile(options.apiKey, steamID, (err, profile) => {
+                    if (err) {
+                        done(err);
+                    } else {
+                        validate(req, identifier, profile, done);
+                    }
+                });
+            } else {
+                validate(req, identifier, profile, done);
             }
         }
 
