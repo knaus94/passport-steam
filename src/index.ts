@@ -49,16 +49,13 @@ export default class Strategy extends OpenIDStrategy {
         options.stateless = options.stateless ?? true;
 
         async function verify(
-            req,
+            req: Request,
             identifier: string,
             profile: Profile,
             done: (error: Error | null, user?: Profile, info?: { message: string }) => void,
         ) {
             const validOpEndpoint = 'https://steamcommunity.com/openid/login';
             const identifierRegex = /^https?:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/;
-            console.log('--req--');
-            console.log(req);
-            console.log('--//req--');
             try {
                 if (
                     req.query['openid.op_endpoint'] !== validOpEndpoint ||
