@@ -85,7 +85,7 @@ export default class Strategy extends OpenIDStrategy {
             }
         }
 
-        super({ ...options, passReqToCallback: false }, verify);
+        super({ ...options, passReqToCallback: true }, verify);
 
         this.name = 'steam';
         this.stateless = options.stateless;
