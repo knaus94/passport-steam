@@ -1,4 +1,4 @@
-import { Passport as OpenIDStrategy } from '@passport-next/passport-openid';
+import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
 import SteamWebAPI from 'steamapi';
 
 interface Profile {
