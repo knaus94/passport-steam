@@ -11,6 +11,11 @@ export interface Profile extends PlayerSummary {
     rustHours?: number;
 }
 
+interface Select {
+    accountLevel: boolean;
+    gameHours: boolean;
+}
+
 type ValidateCallback = (
     req: Request,
     identifier: string,
@@ -21,6 +26,7 @@ type ValidateCallback = (
 async function getUserProfile(
     key: string,
     steamID: string,
+    select: Select,
     callback: (err?: Error | null, profile?: Profile) => void,
 ) {
     const steam = new SteamAPI(key);
@@ -35,28 +41,35 @@ async function getUserProfile(
         };
 
         if (user.visibilityState === 3) {
-            const [accountLevel, games] = await Promise.all([
-                steam.getUserLevel(steamID),
-                steam.getUserOwnedGames(steamID),
-            ]);
+            if (select.accountLevel) {
+                const accountLevel = await steam.getUserLevel(steamID);
 
-            const hours = (appID: number) => {
-                const game = games.find((game) => game.appID === appID);
+                result = {
+                    ...result,
+                    accountLevel,
+                };
+            }
 
-                if (!game) {
-                    return;
-                }
+            if (select.gameHours) {
+                const games = await steam.getUserOwnedGames(steamID);
 
-                return Math.ceil(game.playTime / 60);
-            };
+                const hours = (appID: number) => {
+                    const game = games.find((game) => game.appID === appID);
 
-            result = {
-                ...result,
-                accountLevel,
-                csgoHours: hours(730),
-                dotaHours: hours(570),
-                rustHours: hours(252490),
-            };
+                    if (!game) {
+                        return;
+                    }
+
+                    return Math.ceil(game.playTime / 60);
+                };
+
+                result = {
+                    ...result,
+                    csgoHours: hours(730),
+                    dotaHours: hours(570),
+                    rustHours: hours(252490),
+                };
+            }
         }
 
         return callback(null, result);
@@ -77,11 +90,13 @@ export class Strategy extends OpenIDStrategy {
             apiKey: string;
             profile: boolean;
             realm: string;
+            select: Select;
         },
         validate: ValidateCallback,
     ) {
         options.providerURL = options.providerURL || 'https://steamcommunity.com/openid';
         options.stateless = options.stateless ?? true;
+        options.select = options.select || { accountLevel: false, gameHours: false };
 
         async function verify(
             req: Request,
@@ -102,12 +117,17 @@ export class Strategy extends OpenIDStrategy {
                 const steamID = identifierRegex.exec(identifier)[1];
 
                 if (options.profile) {
-                    return getUserProfile(options.apiKey, steamID, (err, profile) => {
-                        if (err) {
-                            return done(err);
-                        }
-                        return validate(req, identifier, profile, done);
-                    });
+                    return getUserProfile(
+                        options.apiKey,
+                        steamID,
+                        options.select,
+                        (err, profile) => {
+                            if (err) {
+                                return done(err);
+                            }
+                            return validate(req, identifier, profile, done);
+                        },
+                    );
                 }
                 return validate(req, identifier, profile, done);
             } catch (err) {
