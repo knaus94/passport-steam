@@ -3,7 +3,8 @@ import SteamAPI from 'steamapi';
 import { Request } from 'express';
 
 export interface Profile {
-    steamId: string;
+    steamId32: string;
+    steamId64: string;
     nickname: string;
     isProfilePublic: boolean;
     lastLogOffAt: Date;
@@ -42,7 +43,8 @@ async function getUserProfile(
 
         let result: Profile = {
             provider: 'steam',
-            steamId: steamID,
+            steamId32: String(Number(steamID.slice(-16, 17)) - 6561197960265728),
+            steamId64: steamID,
             nickname,
             isProfilePublic: visibilityState == 3,
             avatarHash: avatar.small.match(/[^/]*(?=\.[^.]+($|\?))/)[0],
