@@ -2,7 +2,7 @@ import SteamWebAPI from 'steamapi';
 import Express from 'express';
 
 export interface Profile extends SteamWebAPI.PlayerSummary {
-    provider: 'steam';
+    provider: string;
 }
 
 export type ValidateCallback = (
