@@ -55,6 +55,9 @@ export default class Strategy extends OpenIDStrategy {
         ) {
             const validOpEndpoint = 'https://steamcommunity.com/openid/login';
             const identifierRegex = /^https?:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/;
+            console.log('--req--');
+            console.log(req);
+            console.log('--//req--');
             try {
                 if (
                     req.query['openid.op_endpoint'] !== validOpEndpoint ||
