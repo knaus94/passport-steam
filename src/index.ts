@@ -1,13 +1,12 @@
-import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
+import Passport from '@passport-next/passport-openid';
 import SteamWebAPI from 'steamapi';
-import { Request } from 'express';
 
 export interface Profile extends SteamWebAPI.PlayerSummary {
     provider: string;
 }
 
 type ValidateCallback = (
-    req: Request,
+    req,
     identifier: string,
     profile: Profile,
     done: (error: Error | null, user?: Profile, info?: { message: string }) => void,
@@ -40,7 +39,7 @@ function getUserProfile(
         });
 }
 
-export default class Strategy extends OpenIDStrategy {
+export default class Strategy extends Passport.Strategy {
     public name: string;
     public stateless: boolean;
 
@@ -49,14 +48,13 @@ export default class Strategy extends OpenIDStrategy {
         options.stateless = options.stateless ?? true;
 
         async function verify(
-            req: Request,
+            req,
             identifier: string,
             profile: Profile,
             done: (error: Error | null, user?: Profile, info?: { message: string }) => void,
         ) {
             const validOpEndpoint = 'https://steamcommunity.com/openid/login';
             const identifierRegex = /^https?:\/\/steamcommunity\.com\/openid\/id\/(\d+)$/;
-            console.log(req);
             try {
                 if (
                     req.query['openid.op_endpoint'] !== validOpEndpoint ||
