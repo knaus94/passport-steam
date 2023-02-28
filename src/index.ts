@@ -48,7 +48,7 @@ export default class Strategy extends OpenIDStrategy {
         options.providerURL = options.providerURL || 'https://steamcommunity.com/openid';
         options.stateless = true;
 
-        async function verify(
+        function verify(
             req: Request,
             identifier: string,
             profile: Profile,
