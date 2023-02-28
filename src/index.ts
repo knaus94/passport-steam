@@ -1,12 +1,13 @@
 import { Strategy as OpenIDStrategy } from '@passport-next/passport-openid';
 import SteamWebAPI from 'steamapi';
+import { Request } from 'express';
 
-interface Profile {
+export interface Profile {
     provider: string;
 }
 
 type ValidateCallback = (
-    req,
+    req: Request,
     identifier: string,
     profile: Profile,
     done: (error: Error | null, user?: Profile, info?: { message: string }) => void,
@@ -84,8 +85,7 @@ export default class Strategy extends OpenIDStrategy {
             }
         }
 
-        super(options, verify);
-        OpenIDStrategy.call(this, options, verify);
+        super({ ...options, passReqToCallback: false }, verify);
 
         this.name = 'steam';
         this.stateless = options.stateless;
