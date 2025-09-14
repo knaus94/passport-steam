@@ -34,7 +34,7 @@ class SteamStrategy extends Strategy {
     this._apiKey = options.apiKey;
     this._fetchUserProfile = options.fetchUserProfile ?? true;
     this._fetchSteamLevel = options.fetchSteamLevel ?? false;
-    this._fetchBans = options.fetchBans ?? false; // // NEW
+    this._fetchBans = options.fetchBans ?? false;
     this._passReqToCallback = options.passReqToCallback ?? false;
 
     if (!this._realm) {
@@ -52,15 +52,27 @@ class SteamStrategy extends Strategy {
         "Steam API key is required to fetch user data. Set fetchUserProfile to false if you do not want to include a Steam API key"
       );
     }
+
+    // // Guard: ensure bans helper exists if enabled
+    if (this._fetchBans && typeof fetchSteamBans !== "function") {
+      throw new Error(
+        "fetchBans is enabled but fetchSteamBans is not exported from ./steam-api"
+      );
+    }
   }
 
   /**
    * Get the correct format of the user data based on options
-   * @param {object} SteamID - The SteamID object
+   * @param {object|string} SteamID - The SteamID object or 64-bit string
    * @returns {Promise<object>} The user data
    */
   async fetchUserData(SteamID) {
-    const steamId64 = SteamID.getSteamID64();
+    // // Accept either SteamID object (with getSteamID64()) or raw 64-bit string
+    const steamId64 =
+      SteamID && typeof SteamID.getSteamID64 === "function"
+        ? SteamID.getSteamID64()
+        : String(SteamID);
+
     if (!this._apiKey) return SteamID;
 
     const apiKey =
@@ -70,7 +82,7 @@ class SteamStrategy extends Strategy {
 
     const user = { SteamID };
 
-    // // Run independent calls in parallel to minimize latency
+    // // Run independent calls in parallel; do not fail the whole login if one auxiliary call fails
     const tasks = [];
     if (this._fetchUserProfile)
       tasks.push(
@@ -91,7 +103,17 @@ class SteamStrategy extends Strategy {
         })
       );
 
-    if (tasks.length) await Promise.all(tasks);
+    if (tasks.length) {
+      const results = await Promise.allSettled(tasks);
+      const rejected = results.find((r) => r.status === "rejected");
+      if (rejected && process.env.NODE_ENV !== "production") {
+        console.warn(
+          "SteamStrategy: data fetch partial failure:",
+          rejected.reason
+        );
+      }
+    }
+
     return user;
   }
 
@@ -107,18 +129,18 @@ class SteamStrategy extends Strategy {
     }
 
     try {
-      // we only care about the query params, so hostname doesnt matter
+      // // We only care about the query params, so hostname doesn't matter
       const fullUrl = "https://example.com" + req.url;
       const userSteamId = await verifyLogin(fullUrl, this._realm);
       assert(userSteamId, "Steam validation failed");
 
-      // Fetch the user's profile/level/bans per options
+      // // Fetch the user's profile/level/bans per options
       const user = await this.fetchUserData(userSteamId);
 
       if (this._passReqToCallback) {
         this._verify(req, user, (err, userOut) => {
           if (err) {
-            return this.error(err);
+            return this.error(err); // // internal error -> error(), not fail()
           }
           return this.success(userOut);
         });
@@ -131,7 +153,7 @@ class SteamStrategy extends Strategy {
         });
       }
     } catch (err) {
-      return this.fail(err);
+      return this.error(err);
     }
   }
 }
