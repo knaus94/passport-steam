@@ -55,7 +55,8 @@ function buildQuery(parsedUrl) {
 		const value = parsedUrl.searchParams.get(`openid.${param}`);
 		assert(value, `No "${param}" parameter is present in the URL`);
 
-		query[`openid.${param}`] = value;
+		const sanitizedParam = param.replace(/[^a-zA-Z0-9_.]/g, '');
+		query[`openid.${sanitizedParam}`] = value;
 	});
 
 	// Verify that some important parameters are signed. Steam *should* check this, but let's be doubly sure.
@@ -136,8 +137,8 @@ async function makeSteamRequest(body) {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/x-www-form-urlencoded',
-				'Origin': 'https://steamcommunity.com',
-				'Referer': 'https://steamcommunity.com',
+				Origin: 'https://steamcommunity.com',
+				Referer: 'https://steamcommunity.com/'
 			},
 			body: new URLSearchParams(body).toString()
 		});
