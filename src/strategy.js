@@ -1,142 +1,139 @@
-const { Strategy } = require('passport-strategy');
-const assert = require('assert');
+const { Strategy } = require("passport-strategy");
+const assert = require("assert");
+
+const { verifyLogin, buildAuthUrl, canonicalizeRealm } = require("./helpers");
 
 const {
-	verifyLogin,
-	buildAuthUrl,
-	canonicalizeRealm
-} = require('./helpers');
-const {
-	fetchSteamProfile,
-	fetchSteamLevel
-} = require('./steam-api');
+  fetchSteamProfile,
+  fetchSteamLevel,
+  fetchSteamBans,
+} = require("./steam-api");
 
 /**
  * `SteamStrategy` is a class that extends `Strategy` for Steam authentication.
- * @class
- * @augments Strategy
- * @example
- * const strategy = new SteamStrategy({
- *   realm: 'http://yourdomain.com/',
- *   returnUrl: 'http://yourdomain.com/auth/steam/return',
- *   fetchSteamLevel: true,
- *   fetchUserProfile: true,
- *   passReqToCallback: true,
- *   apiKey: () => {
- *     // You should return your Steam API key here
- *     // For security, you should use environment variables or a secure key management service
- *     // Can be a string or a function that returns a string
- *     // Can be async if you need to fetch the key from a remote service!
- *   }
- * }, (user, done) => {
- *   // do something with the user object
- * });
  */
 class SteamStrategy extends Strategy {
-	/**
-	 * Creates a new `SteamStrategy`.
-	 * @param {object} options - The options for the strategy.
-	 * @param {string} options.realm - The realm for the strategy.
-	 * @param {string} options.returnUrl - The return URL for the strategy.
-	 * @param {string | Function} options.apiKey - The Steam API key to use for fetching user data.
-	 * @param {boolean} [options.fetchUserProfile=true] - Whether to fetch the user's profile. Default is `true`.
-	 * @param {boolean} [options.fetchSteamLevel=false] - Whether to fetch the user's steam level. Default is `false`.
-	 * @param {boolean} [options.passReqToCallback=false] - Whether to pass the request
-	 * @param {Function} verify - The verification function for the strategy.
-	 */
-	constructor(options, verify) {
-		super();
-		this.name = 'steam';
+  /**
+   * @param {object} options
+   * @param {string} options.realm
+   * @param {string} options.returnUrl
+   * @param {string|Function} options.apiKey
+   * @param {boolean} [options.fetchUserProfile=true]
+   * @param {boolean} [options.fetchSteamLevel=false]
+   * @param {boolean} [options.fetchBans=false]     // // NEW: fetch VAC/community/game bans
+   * @param {boolean} [options.passReqToCallback=false]
+   * @param {Function} verify
+   */
+  constructor(options, verify) {
+    super();
+    this.name = "steam";
 
-		this._verify = verify;
-		this._realm = canonicalizeRealm(options.realm);
-		this._returnUrl = options.returnUrl;
-		this._apiKey = options.apiKey;
-		this._fetchUserProfile = options.fetchUserProfile ?? true;
-		this._fetchSteamLevel = options.fetchSteamLevel ?? false;
-		this._passReqToCallback = options.passReqToCallback ?? false;
+    this._verify = verify;
+    this._realm = canonicalizeRealm(options.realm);
+    this._returnUrl = options.returnUrl;
+    this._apiKey = options.apiKey;
+    this._fetchUserProfile = options.fetchUserProfile ?? true;
+    this._fetchSteamLevel = options.fetchSteamLevel ?? false;
+    this._fetchBans = options.fetchBans ?? false; // // NEW
+    this._passReqToCallback = options.passReqToCallback ?? false;
 
-		if(!this._realm) {
-			throw new Error('OpenID realm is required');
-		}
-		if(!this._returnUrl) {
-			throw new Error('OpenID return URL is required');
-		}
-		// If _fetchUserProfile is false then we dont need to check for API key
-		if((this._fetchUserProfile || this._fetchSteamLevel) && !this._apiKey) {
-			throw new Error('Steam API key is required to fetch user data. Set fetchUserProfile to false if you do not want to include a Steam API key');
-		}
-	}
+    if (!this._realm) {
+      throw new Error("OpenID realm is required");
+    }
+    if (!this._returnUrl) {
+      throw new Error("OpenID return URL is required");
+    }
+    // // API key is required if any Steam Web API calls are enabled
+    if (
+      (this._fetchUserProfile || this._fetchSteamLevel || this._fetchBans) &&
+      !this._apiKey
+    ) {
+      throw new Error(
+        "Steam API key is required to fetch user data. Set fetchUserProfile to false if you do not want to include a Steam API key"
+      );
+    }
+  }
 
-	/**
-	 * Get the correct format of the user data based on options
-	 * @param {object} SteamID - The SteamID object
-	 * @returns {Promise<object>} The user data
-	 */
-	async fetchUserData(SteamID) {
-		const steamId64 = SteamID.getSteamID64();
-		if(!this._apiKey) return SteamID;
+  /**
+   * Get the correct format of the user data based on options
+   * @param {object} SteamID - The SteamID object
+   * @returns {Promise<object>} The user data
+   */
+  async fetchUserData(SteamID) {
+    const steamId64 = SteamID.getSteamID64();
+    if (!this._apiKey) return SteamID;
 
-		const apiKey = typeof this._apiKey === 'string'
-			? this._apiKey
-			: await this._apiKey(SteamID);
+    const apiKey =
+      typeof this._apiKey === "string"
+        ? this._apiKey
+        : await this._apiKey(SteamID);
 
-		const user = {
-			SteamID
-		};
+    const user = { SteamID };
 
-		if(this._fetchUserProfile) {
-			user.profile = await fetchSteamProfile(steamId64, apiKey);
-		}
-		if(this._fetchSteamLevel) {
-			user.level = await fetchSteamLevel(steamId64, apiKey);
-		}
+    // // Run independent calls in parallel to minimize latency
+    const tasks = [];
+    if (this._fetchUserProfile)
+      tasks.push(
+        fetchSteamProfile(steamId64, apiKey).then((p) => {
+          user.profile = p;
+        })
+      );
+    if (this._fetchSteamLevel)
+      tasks.push(
+        fetchSteamLevel(steamId64, apiKey).then((l) => {
+          user.level = l;
+        })
+      );
+    if (this._fetchBans)
+      tasks.push(
+        fetchSteamBans(steamId64, apiKey).then((b) => {
+          user.bans = b;
+        })
+      );
 
-		return user;
-	}
+    if (tasks.length) await Promise.all(tasks);
+    return user;
+  }
 
-	/**
-	 * Authenticate the user
-	 * @param {object} req - The express request object
-	 * @returns {Promise<void>}
-	 */
-	async authenticate(req) {
-		if(!req.query || !req.query['openid.mode']) {
-			const authUrl = buildAuthUrl(this._realm, this._returnUrl);
+  /**
+   * Authenticate the user
+   * @param {object} req - The express request object
+   * @returns {Promise<void>}
+   */
+  async authenticate(req) {
+    if (!req.query || !req.query["openid.mode"]) {
+      const authUrl = buildAuthUrl(this._realm, this._returnUrl);
+      return this.redirect(authUrl);
+    }
 
-			return this.redirect(authUrl);
-		}
+    try {
+      // we only care about the query params, so hostname doesnt matter
+      const fullUrl = "https://example.com" + req.url;
+      const userSteamId = await verifyLogin(fullUrl, this._realm);
+      assert(userSteamId, "Steam validation failed");
 
-		try{
-			// we only care about the query params, so hostname doesnt matter
-			const fullUrl = 'https://example.com' + req.url;
-			const userSteamId = await verifyLogin(fullUrl, this._realm);
-			assert(userSteamId, 'Steam validation failed');
+      // Fetch the user's profile/level/bans per options
+      const user = await this.fetchUserData(userSteamId);
 
-			// Fetch the user's profile and steam level
-			const user = await this.fetchUserData(userSteamId);
-
-			if(this._passReqToCallback) {
-				this._verify(req, user, (err, user) => {
-					if(err) {
-						return this.error(err);
-					}
-
-					return this.success(user);
-				});
-			} else{
-				this._verify(user, (err, user) => {
-					if(err) {
-						return this.error(err);
-					}
-
-					return this.success(user);
-				});
-			}
-		} catch(err) {
-			return this.fail(err);
-		}
-	}
+      if (this._passReqToCallback) {
+        this._verify(req, user, (err, userOut) => {
+          if (err) {
+            return this.error(err);
+          }
+          return this.success(userOut);
+        });
+      } else {
+        this._verify(user, (err, userOut) => {
+          if (err) {
+            return this.error(err);
+          }
+          return this.success(userOut);
+        });
+      }
+    } catch (err) {
+      return this.fail(err);
+    }
+  }
 }
 
 module.exports = SteamStrategy;
