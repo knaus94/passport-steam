@@ -18,6 +18,7 @@ class SteamStrategy extends Strategy {
    * @param {string} options.realm
    * @param {string} options.returnUrl
    * @param {string|Function} options.apiKey
+   * @param {string|false} [options.proxy]
    * @param {boolean} [options.fetchUserProfile=true]
    * @param {boolean} [options.fetchSteamLevel=false]
    * @param {boolean} [options.fetchBans=false]     // // NEW: fetch VAC/community/game bans
@@ -32,6 +33,7 @@ class SteamStrategy extends Strategy {
     this._realm = canonicalizeRealm(options.realm);
     this._returnUrl = options.returnUrl;
     this._apiKey = options.apiKey;
+    this._proxy = options.proxy;
     this._fetchUserProfile = options.fetchUserProfile ?? true;
     this._fetchSteamLevel = options.fetchSteamLevel ?? false;
     this._fetchBans = options.fetchBans ?? false;
@@ -72,6 +74,7 @@ class SteamStrategy extends Strategy {
       SteamID && typeof SteamID.getSteamID64 === "function"
         ? SteamID.getSteamID64()
         : String(SteamID);
+    const requestOptions = { proxy: this._proxy };
 
     if (!this._apiKey) return SteamID;
 
@@ -86,19 +89,19 @@ class SteamStrategy extends Strategy {
     const tasks = [];
     if (this._fetchUserProfile)
       tasks.push(
-        fetchSteamProfile(steamId64, apiKey).then((p) => {
+        fetchSteamProfile(steamId64, apiKey, requestOptions).then((p) => {
           user.profile = p;
         })
       );
     if (this._fetchSteamLevel)
       tasks.push(
-        fetchSteamLevel(steamId64, apiKey).then((l) => {
+        fetchSteamLevel(steamId64, apiKey, requestOptions).then((l) => {
           user.level = l;
         })
       );
     if (this._fetchBans)
       tasks.push(
-        fetchSteamBans(steamId64, apiKey).then((b) => {
+        fetchSteamBans(steamId64, apiKey, requestOptions).then((b) => {
           user.bans = b;
         })
       );
@@ -131,7 +134,9 @@ class SteamStrategy extends Strategy {
     try {
       // // We only care about the query params, so hostname doesn't matter
       const fullUrl = "https://example.com" + req.url;
-      const userSteamId = await verifyLogin(fullUrl, this._realm);
+      const userSteamId = await verifyLogin(fullUrl, this._realm, {
+        proxy: this._proxy,
+      });
       assert(userSteamId, "Steam validation failed");
 
       // // Fetch the user's profile/level/bans per options
