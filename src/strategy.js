@@ -18,7 +18,7 @@ class SteamStrategy extends Strategy {
    * @param {string} options.realm
    * @param {string} options.returnUrl
    * @param {string|Function} options.apiKey
-   * @param {string|false} [options.proxy]
+   * @param {string|false|Function} [options.proxy]
    * @param {boolean} [options.fetchUserProfile=true]
    * @param {boolean} [options.fetchSteamLevel=false]
    * @param {boolean} [options.fetchBans=false]     // // NEW: fetch VAC/community/game bans
@@ -64,17 +64,31 @@ class SteamStrategy extends Strategy {
   }
 
   /**
+   * Resolve the configured proxy value for outbound Steam requests
+   * @param {object} [req] - The express request object
+   * @param {object} [context] - Extra context for proxy selector functions
+   * @returns {Promise<string|false|undefined>} The resolved proxy option
+   */
+  async resolveProxy(req, context = {}) {
+    if (typeof this._proxy !== "function") {
+      return this._proxy;
+    }
+
+    return await this._proxy(req, context);
+  }
+
+  /**
    * Get the correct format of the user data based on options
    * @param {object|string} SteamID - The SteamID object or 64-bit string
+   * @param {object} [options] - transport options
    * @returns {Promise<object>} The user data
    */
-  async fetchUserData(SteamID) {
+  async fetchUserData(SteamID, options = {}) {
     // // Accept either SteamID object (with getSteamID64()) or raw 64-bit string
     const steamId64 =
       SteamID && typeof SteamID.getSteamID64 === "function"
         ? SteamID.getSteamID64()
         : String(SteamID);
-    const requestOptions = { proxy: this._proxy };
 
     if (!this._apiKey) return SteamID;
 
@@ -84,6 +98,25 @@ class SteamStrategy extends Strategy {
         : await this._apiKey(SteamID);
 
     const user = { SteamID };
+    const shouldFetchSteamData =
+      this._fetchUserProfile || this._fetchSteamLevel || this._fetchBans;
+    const { req, ...transportOptions } = options;
+    const hasProxyOverride = Object.prototype.hasOwnProperty.call(
+      transportOptions,
+      "proxy"
+    );
+    let requestOptions = transportOptions;
+
+    if (shouldFetchSteamData) {
+      const proxy = hasProxyOverride
+        ? transportOptions.proxy
+        : await this.resolveProxy(req, {
+            phase: "fetchUserData",
+            SteamID,
+            steamId64,
+          });
+      requestOptions = { ...transportOptions, proxy };
+    }
 
     // // Run independent calls in parallel; do not fail the whole login if one auxiliary call fails
     const tasks = [];
@@ -134,13 +167,18 @@ class SteamStrategy extends Strategy {
     try {
       // // We only care about the query params, so hostname doesn't matter
       const fullUrl = "https://example.com" + req.url;
-      const userSteamId = await verifyLogin(fullUrl, this._realm, {
-        proxy: this._proxy,
-      });
+      const requestOptions = {
+        proxy: await this.resolveProxy(req, { phase: "authenticate" }),
+      };
+      const userSteamId = await verifyLogin(
+        fullUrl,
+        this._realm,
+        requestOptions
+      );
       assert(userSteamId, "Steam validation failed");
 
       // // Fetch the user's profile/level/bans per options
-      const user = await this.fetchUserData(userSteamId);
+      const user = await this.fetchUserData(userSteamId, requestOptions);
 
       if (this._passReqToCallback) {
         this._verify(req, user, (err, userOut) => {

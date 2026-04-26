@@ -25,7 +25,7 @@ This strategy takes an options object with the following properties:
 - `realm` - The URL to which Steam will redirect the user after authentication. This should be the root URL of your website.
 - `fetchSteamLevel` - Whether or not to fetch the user's Steam level. Defaults to `false`. Requires an API key to be provided.
 - `fetchUserProfile` - Whether or not to fetch the user's profile. Defaults to `true`. Requires an API key to be provided.
-- `proxy` - Optional outbound proxy URL for Steam requests, for example `http://user:pass@127.0.0.1:8080`. If omitted, the strategy will also respect `HTTPS_PROXY`, `ALL_PROXY`, `HTTP_PROXY`, and `NO_PROXY`. Set `proxy: false` to disable proxy env inheritance.
+- `proxy` - Optional outbound proxy URL for Steam requests, for example `http://user:pass@127.0.0.1:8080`. Can also be a sync or async function returning a proxy URL, `false`, or `undefined`; the function receives the Express request and is resolved once for the Steam callback request, then reused for validation/profile/level/bans calls. If omitted or the function returns `undefined`, the strategy will also respect `HTTPS_PROXY`, `ALL_PROXY`, `HTTP_PROXY`, and `NO_PROXY`. Set `proxy: false` or return `false` to disable proxy env inheritance.
 - `apiKey` - A Steam API key to use for fetching the user's Steam level and profile. Can be a string or a function that returns a string. Can be async if you need to fetch the key from a remote service!
 	- If you do not explicity set `fetchUserProfile` to `false`, an error will be thrown if you do not provide an API key.
 	- If you do not provide an API key, the first parameter passed to the verify callback will be the SteamID object.
@@ -38,7 +38,7 @@ Example options object:
 	realm: 'http://localhost:3000/',
 	fetchSteamLevel: true, // Defaults to false, makes an extra request to fetch the user's Steam level
 	fetchUserProfile: true, // Defaults to true if an API key is provided
-	proxy: process.env.STEAM_PROXY || undefined, // Optional, supports http:// and https:// proxies
+	proxy: process.env.STEAM_PROXY || undefined, // Optional string or selector function; supports http:// and https:// proxies
 	apiKey: () => {
 		// You should return your Steam API key here
 		// For security, you should use environment variables or a secure key management service
@@ -47,6 +47,23 @@ Example options object:
 		return 'MY_STEAM_API_KEY';
 	}
 }
+```
+
+Dynamic proxy selector:
+```js
+passport.use(new SteamStrategy({
+	returnUrl: 'http://localhost:3000/login/return',
+	realm: 'http://localhost:3000/',
+	proxy: async (req) => {
+		const proxy = await pickSteamProxy(req);
+		if (!proxy) {
+			throw new Error('No HTTP proxy is available for Steam auth');
+		}
+
+		return proxy;
+	},
+	apiKey: process.env.STEAM_API_KEY
+}, (user, done) => done(null, user)));
 ```
 
 ## Usage
