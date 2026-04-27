@@ -1,6 +1,6 @@
 {
   "name": "@dessly/passport-steam",
-  "version": "3.0.23",
+  "version": "3.0.24",
   "description": "A modern passport strategy for steam with hopefully no bugs!",
   "main": "src/index.js",
   "keywords": [
@@ -21,7 +21,9 @@
   },
   "license": "MIT",
   "dependencies": {
+    "https-proxy-agent": "^7.0.6",
     "passport-strategy": "^1.0.0",
+    "proxy-from-env": "^2.1.0",
     "steamid": "^2.1.0"
   }
 }

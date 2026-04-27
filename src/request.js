@@ -1,8 +1,10 @@
 const https = require('https');
-const net = require('net');
-const tls = require('tls');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const { getProxyForUrl } = require('proxy-from-env');
 
 const REQUEST_TIMEOUT_MS = 30000;
+const PROXY_AGENT_CACHE_SIZE = 32;
+const proxyAgentCache = new Map();
 
 /**
  * Build a fetch-like headers object from node response headers
@@ -39,81 +41,45 @@ function buildResponse(response, bodyBuffer) {
 }
 
 /**
- * Strip a port from a NO_PROXY entry
- * @param {string} value - raw no_proxy entry
- * @returns {string} normalized host
+ * Resolve a proxy from environment variables
+ * @param {string} targetUrl - request target url
+ * @returns {string} proxy url
  */
-function stripNoProxyPort(value) {
-	if(value.startsWith('[')) {
-		const closingIndex = value.indexOf(']');
-		return closingIndex === -1 ? value : value.slice(1, closingIndex);
+function getProxyFromEnv(targetUrl) {
+	const proxyUrl = getProxyForUrl(targetUrl);
+	if(proxyUrl) {
+		return proxyUrl;
 	}
 
-	const colonCount = [...value].filter(char => char === ':').length;
-	if(colonCount === 1) {
-		return value.split(':')[0];
+	const target = new URL(targetUrl);
+	if(target.protocol !== 'https:' || !(process.env.http_proxy || process.env.HTTP_PROXY)) {
+		return proxyUrl;
 	}
 
-	return value;
+	const httpTarget = new URL(targetUrl);
+	httpTarget.protocol = 'http:';
+	if(!httpTarget.port) {
+		httpTarget.port = target.port || '443';
+	}
+
+	return getProxyForUrl(httpTarget.href);
 }
 
 /**
- * Check if a hostname should bypass the configured proxy
- * @param {string} hostname - request hostname
- * @param {string} noProxyValue - NO_PROXY env value
- * @returns {boolean} whether the hostname should bypass the proxy
- */
-function shouldBypassProxy(hostname, noProxyValue) {
-	if(!noProxyValue) {
-		return false;
-	}
-
-	const normalizedHostname = hostname.toLowerCase();
-
-	return noProxyValue
-		.split(',')
-		.map(value => stripNoProxyPort(value.trim().toLowerCase()))
-		.filter(Boolean)
-		.some(entry => {
-			if(entry === '*') {
-				return true;
-			}
-
-			if(entry.startsWith('.')) {
-				return normalizedHostname.endsWith(entry);
-			}
-
-			return normalizedHostname === entry || normalizedHostname.endsWith(`.${entry}`);
-		});
-}
-
-/**
- * Resolve a proxy from explicit options or environment variables
- * @param {URL} targetUrl - request target url
+ * Resolve a proxy URL from explicit options or environment variables
+ * @param {string} targetUrl - request target url
  * @param {string|false|undefined} explicitProxy - explicit proxy override
- * @returns {URL|null} parsed proxy URL
+ * @returns {string|null} proxy url
  */
-function resolveProxy(targetUrl, explicitProxy) {
+function resolveProxyUrl(targetUrl, explicitProxy) {
 	if(explicitProxy === false) {
 		return null;
-	}
-
-	if(!explicitProxy) {
-		const noProxy = process.env.NO_PROXY || process.env.no_proxy;
-		if(shouldBypassProxy(targetUrl.hostname, noProxy)) {
-			return null;
-		}
 	}
 
 	const proxyValue =
 		typeof explicitProxy === 'string' && explicitProxy.trim()
 			? explicitProxy.trim()
-			: process.env.HTTPS_PROXY ||
-				process.env.https_proxy ||
-				process.env.ALL_PROXY ||
-				process.env.all_proxy ||
-				process.env.HTTP_PROXY ||
-				process.env.http_proxy;
+			: getProxyFromEnv(targetUrl);
 
 	if(!proxyValue) {
 		return null;
@@ -124,208 +90,47 @@ function resolveProxy(targetUrl, explicitProxy) {
 		throw new Error(`Unsupported proxy protocol "${proxyUrl.protocol}". Only http:// and https:// proxies are supported.`);
 	}
 
-	return proxyUrl;
+	return proxyUrl.href;
 }
 
 /**
- * Wait until a socket fires the ready event or times out
- * @param {import('net').Socket|import('tls').TLSSocket} socket - socket instance
- * @param {string} eventName - ready event name
- * @param {number} timeoutMs - timeout in milliseconds
- * @param {string} label - human-friendly label for errors
- * @returns {Promise<void>}
+ * Get a cached proxy agent for a proxy URL
+ * @param {string} proxyUrl - resolved proxy url
+ * @returns {HttpsProxyAgent} cached proxy agent
  */
-function waitForSocketReady(socket, eventName, timeoutMs, label) {
-	return new Promise((resolve, reject) => {
-		const cleanup = () => {
-			socket.setTimeout(0);
-			socket.off(eventName, onReady);
-			socket.off('error', onError);
-			socket.off('timeout', onTimeout);
-		};
+function getProxyAgent(proxyUrl) {
+	const cachedAgent = proxyAgentCache.get(proxyUrl);
+	if(cachedAgent) {
+		proxyAgentCache.delete(proxyUrl);
+		proxyAgentCache.set(proxyUrl, cachedAgent);
 
-		const onReady = () => {
-			cleanup();
-			resolve();
-		};
-
-		const onError = (error) => {
-			cleanup();
-			socket.destroy();
-			reject(error);
-		};
-
-		const onTimeout = () => {
-			cleanup();
-			socket.destroy();
-			reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-		};
-
-		socket.once(eventName, onReady);
-		socket.once('error', onError);
-		socket.once('timeout', onTimeout);
-		socket.setTimeout(timeoutMs);
-	});
-}
-
-/**
- * Build CONNECT authority for a host
- * @param {URL} targetUrl - request target url
- * @returns {string} authority string
- */
-function getConnectAuthority(targetUrl) {
-	const hostname = targetUrl.hostname.includes(':')
-		? `[${targetUrl.hostname}]`
-		: targetUrl.hostname;
-
-	return `${hostname}:${targetUrl.port || 443}`;
-}
-
-/**
- * Create the Proxy-Authorization header when credentials are present
- * @param {URL} proxyUrl - proxy URL
- * @returns {string} header line or empty string
- */
-function buildProxyAuthorization(proxyUrl) {
-	if(!proxyUrl.username && !proxyUrl.password) {
-		return '';
+		return cachedAgent;
 	}
 
-	const username = decodeURIComponent(proxyUrl.username);
-	const password = decodeURIComponent(proxyUrl.password);
-	const credentials = Buffer.from(`${username}:${password}`).toString('base64');
+	const agent = new HttpsProxyAgent(proxyUrl);
+	proxyAgentCache.set(proxyUrl, agent);
 
-	return `Proxy-Authorization: Basic ${credentials}\r\n`;
+	if(proxyAgentCache.size > PROXY_AGENT_CACHE_SIZE) {
+		const oldestProxyUrl = proxyAgentCache.keys().next().value;
+		proxyAgentCache.delete(oldestProxyUrl);
+	}
+
+	return agent;
 }
 
 /**
- * Read the HTTP CONNECT response from the proxy
- * @param {import('net').Socket|import('tls').TLSSocket} socket - connected proxy socket
- * @param {number} timeoutMs - timeout in milliseconds
- * @returns {Promise<void>}
+ * Build the agent for a request
+ * @param {string} targetUrl - request target url
+ * @param {object} options - request options
+ * @returns {import('https').Agent|undefined} https agent
  */
-function readProxyConnectResponse(socket, timeoutMs) {
-	return new Promise((resolve, reject) => {
-		const chunks = [];
-		let bufferLength = 0;
+function resolveAgent(targetUrl, options) {
+	const proxyUrl = resolveProxyUrl(targetUrl, options.proxy);
+	if(proxyUrl) {
+		return getProxyAgent(proxyUrl);
+	}
 
-		const cleanup = () => {
-			socket.setTimeout(0);
-			socket.off('data', onData);
-			socket.off('error', onError);
-			socket.off('end', onEnd);
-			socket.off('timeout', onTimeout);
-		};
-
-		const fail = (error) => {
-			cleanup();
-			socket.destroy();
-			reject(error);
-		};
-
-		const onData = (chunk) => {
-			chunks.push(chunk);
-			bufferLength += chunk.length;
-
-			const buffer = Buffer.concat(chunks, bufferLength);
-			const headerEndIndex = buffer.indexOf('\r\n\r\n');
-			if(headerEndIndex === -1) {
-				return;
-			}
-
-			const headerText = buffer.subarray(0, headerEndIndex).toString('utf8');
-			const statusLine = headerText.split('\r\n')[0];
-			const statusMatch = statusLine.match(/^HTTP\/1\.[01] (\d{3})/);
-
-			if(!statusMatch) {
-				return fail(new Error(`Invalid proxy CONNECT response: ${statusLine}`));
-			}
-
-			const statusCode = Number(statusMatch[1]);
-			if(statusCode !== 200) {
-				return fail(new Error(`Proxy CONNECT failed with status ${statusCode}`));
-			}
-
-			const remainder = buffer.subarray(headerEndIndex + 4);
-			cleanup();
-			if(remainder.length) {
-				socket.unshift(remainder);
-			}
-			resolve();
-		};
-
-		const onError = (error) => {
-			cleanup();
-			reject(error);
-		};
-
-		const onEnd = () => {
-			fail(new Error('Proxy closed the tunnel before CONNECT completed'));
-		};
-
-		const onTimeout = () => {
-			fail(new Error(`Proxy CONNECT timed out after ${timeoutMs}ms`));
-		};
-
-		socket.on('data', onData);
-		socket.once('error', onError);
-		socket.once('end', onEnd);
-		socket.once('timeout', onTimeout);
-		socket.setTimeout(timeoutMs);
-	});
-}
-
-/**
- * Create a TLS socket to the target through an HTTP(S) proxy
- * @param {URL} targetUrl - request target url
- * @param {URL} proxyUrl - parsed proxy URL
- * @param {number} timeoutMs - timeout in milliseconds
- * @returns {Promise<import('tls').TLSSocket>} tunneled socket
- */
-async function createProxyTunnel(targetUrl, proxyUrl, timeoutMs) {
-	const proxyPort = Number(proxyUrl.port) || (proxyUrl.protocol === 'https:' ? 443 : 80);
-	const proxySocket = proxyUrl.protocol === 'https:'
-		? tls.connect({
-			host: proxyUrl.hostname,
-			port: proxyPort,
-			servername: proxyUrl.hostname
-		})
-		: net.connect({
-			host: proxyUrl.hostname,
-			port: proxyPort
-		});
-
-	await waitForSocketReady(
-		proxySocket,
-		proxyUrl.protocol === 'https:' ? 'secureConnect' : 'connect',
-		timeoutMs,
-		`Connection to proxy ${proxyUrl.host}`
-	);
-
-	const authority = getConnectAuthority(targetUrl);
-	const connectRequest =
-		`CONNECT ${authority} HTTP/1.1\r\n` +
-		`Host: ${authority}\r\n` +
-		buildProxyAuthorization(proxyUrl) +
-		'Proxy-Connection: Keep-Alive\r\n' +
-		'\r\n';
-
-	proxySocket.write(connectRequest);
-	await readProxyConnectResponse(proxySocket, timeoutMs);
-
-	const targetSocket = tls.connect({
-		socket: proxySocket,
-		servername: targetUrl.hostname
-	});
-
-	await waitForSocketReady(
-		targetSocket,
-		'secureConnect',
-		timeoutMs,
-		`TLS handshake to ${targetUrl.host}`
-	);
-
-	return targetSocket;
+	return options.agent;
 }
 
 /**
@@ -335,6 +140,7 @@ async function createProxyTunnel(targetUrl, proxyUrl, timeoutMs) {
  * @param {string} [options.method='GET'] - HTTP method
  * @param {object} [options.headers={}] - request headers
  * @param {string|Buffer} [options.body] - request body
+ * @param {import('https').Agent} [options.agent] - custom HTTPS agent
  * @param {string|false} [options.proxy] - explicit proxy URL, or false to disable env proxies
  * @param {number} [options.timeoutMs=30000] - request timeout in milliseconds
  * @returns {Promise<{ok: boolean, status: number, headers: {get: Function}, text: Function, json: Function}>}
@@ -346,7 +152,6 @@ async function request(url, options = {}) {
 	}
 
 	const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
-	const proxyUrl = resolveProxy(targetUrl, options.proxy);
 	const headers = { ...(options.headers || {}) };
 	const body = options.body;
 
@@ -360,15 +165,8 @@ async function request(url, options = {}) {
 		path: `${targetUrl.pathname}${targetUrl.search}`,
 		method: options.method || 'GET',
 		headers,
-		agent: undefined,
-		createConnection: undefined
+		agent: resolveAgent(targetUrl.href, options)
 	};
-
-	if(proxyUrl) {
-		const tunneledSocket = await createProxyTunnel(targetUrl, proxyUrl, timeoutMs);
-		requestOptions.agent = false;
-		requestOptions.createConnection = () => tunneledSocket;
-	}
 
 	return await new Promise((resolve, reject) => {
 		const req = https.request(requestOptions, (response) => {

@@ -136,14 +136,15 @@ function extractAndVerifyParams(url, expectedRealm) {
 async function makeSteamRequest(body, requestOptions = {}) {
 	try{
 		const response = await request('https://steamcommunity.com/openid/login', {
+			...requestOptions,
 			method: 'POST',
 			headers: {
+				...(requestOptions.headers || {}),
 				'Content-Type': 'application/x-www-form-urlencoded',
 				Origin: 'https://steamcommunity.com',
 				Referer: 'https://steamcommunity.com/'
 			},
-			body: new URLSearchParams(body).toString(),
-			proxy: requestOptions.proxy
+			body: new URLSearchParams(body).toString()
 		});
 
 		if(!response.ok) {
